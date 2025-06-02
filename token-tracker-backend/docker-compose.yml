@@ -1,0 +1,36 @@
+services:
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./docker/grafana:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+      - tempo
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus:/etc/prometheus
+
+  tempo:
+    image: grafana/tempo:latest
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    ports:
+      - "3200:3200" # Tempo HTTP API
+      - "4318:4318" # OTLP HTTP
+    volumes:
+      - ./docker/tempo:/etc/tempo
+
+  backened:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - prometheus
+      - tempo
