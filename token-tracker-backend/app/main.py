@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from prometheus_client import make_asgi_app
 from app.observability import metrics
 from app.observability.otel import trace
+from opentelemetry.trace import format_trace_id
+
 import time
 
 # Create app
@@ -41,7 +43,17 @@ def observe_spans():
         with tracer.start_as_current_span("simulate toxicity check") as toxicity_span:
             time.sleep(0.2)
 
-        # track metrics for prometheus
+        # record metrics for prometheus
         metrics.track_tokens(latency)
         metrics.track_latency_seconds(token_count)
-    return {"message": "spans recorded"}
+
+        # fetch the current span and trace id
+        current_span = trace.get_current_span()
+        span_context = current_span.get_span_context()
+        trace_id = span_context.trace_id
+        formatted_trace_id = format_trace_id(trace_id)
+        
+    return {
+        "message": "spans recorded",
+        "trace_id": formatted_trace_id
+    }
