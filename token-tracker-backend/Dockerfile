@@ -22,7 +22,7 @@ COPY . .
 EXPOSE 8000
 
 # command to run app
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.LLM_API_Logic:app", "--host", "0.0.0.0", "--port", "8000"]
 
 
 

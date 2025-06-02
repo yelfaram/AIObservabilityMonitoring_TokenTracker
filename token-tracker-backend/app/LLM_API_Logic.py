@@ -1,19 +1,23 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from pydantic import BaseModel
-import requests
-import os
-import tiktoken
-import time
-from dotenv import load_dotenv
+from prometheus_client import make_asgi_app
+from app.observability import metrics
+from app.observability.otel import trace
+from opentelemetry.trace import format_trace_id
 from detoxify import Detoxify
+from dotenv import load_dotenv
+import time, os, requests
 
 
 load_dotenv()
 groq_api_key = os.getenv("GROQ_API_KEY")
+model = Detoxify("original")        # create detoxify model
+app = FastAPI(debug=False)          # Create app
+tracer = trace.get_tracer(__name__) # Create trace
 
-app = FastAPI()
-
-model = Detoxify("original")
+# Add prometheus asgi middleware to route /metrics requests
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
 
 class ChatRequest(BaseModel):
     user_input: str
@@ -33,25 +37,43 @@ async def feedback(data: FeedbackRequest):
 @app.post("/chat")
 async def chat(request: ChatRequest):
     user_message = request.user_input
-    model_response,prompt_tokens,completion_tokens,model, total_time = call_groq_api_with_retry(user_message)
 
-    
+    with tracer.start_as_current_span("handle /chat") as parent_span:
+        start_time = time.time()
 
-    # Basic toxicity evaluation
-    toxic_bool, toxic_score = is_toxic(model_response)
-    if toxic_bool:
-        print("⚠️ Toxic response detected!")
+        with tracer.start_as_current_span("groq API call"):
+            model_response, prompt_tokens, completion_tokens, model_name, total_time = call_groq_api_with_retry(user_message)
+
+        with tracer.start_as_current_span("toxicity evaluation"):
+            toxic_flag, toxic_score = is_toxic(model_response) # Basic toxicity evaluation
+
+        # Calculate latency and record metrics for Prometheus
+        latency = time.time() - start_time
+        token_total = prompt_tokens + completion_tokens
+        metrics.track_tokens(token_total)
+        metrics.track_latency_seconds(latency)
+
+        # fetch the current span and trace id
+        current_span = trace.get_current_span()
+        span_context = current_span.get_span_context()
+        trace_id = span_context.trace_id
+        formatted_trace_id = format_trace_id(trace_id)
 
     return {
         "response": model_response,
-        "token_usage": {
-            "prompt_tokens": prompt_tokens,
-            "response_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens
+        "meta": {
+            "latency_s": latency,
+            "token_usage": {
+                "prompt_tokens": prompt_tokens,
+                "response_tokens": completion_tokens,
+                "total_tokens": token_total
+            }
         },
-        "toxicity_flag": toxic_bool,
+        "model": model_name,
+        "trace_id": formatted_trace_id,
         "toxicity_score": toxic_score,
-        "total_time": total_time
+        "flagged_toxic": toxic_flag,
+        "total_time": total_time,
     }
 
 
@@ -69,26 +91,17 @@ def call_groq_api(prompt: str):
 
     try:
         data = response.json()
-        print("Groq raw response:\n\n", data)  # 🔍 Print the raw response
-        print("This is what youre returning: ", data["choices"][0]["message"]["content"])
-        response = data["choices"][0]["message"]["content"]
-        prompt_tokens = data["usage"]["prompt_tokens"]
-        completion_tokens = data["usage"]["completion_tokens"]
-        model = data["model"]
-        total_time = data["usage"]["total_time"]
-
-        return response, prompt_tokens,completion_tokens,model, total_time
+        
+        return (
+            data["choices"][0]["message"]["content"],
+            data["usage"]["prompt_tokens"],
+            data["usage"]["completion_tokens"],
+            data["model"],
+            data["usage"]["total_time"]
+        )
     except Exception as e:
-        print("❌ Error parsing Groq response:", e)
-        print("Full response content:", response.text)
+        print("Groq API parsing error:", e)
         raise
-
-
-
-def count_tokens(text: str, model: str = "gpt-3.5-turbo"):
-    encoding = tiktoken.encoding_for_model(model)
-    return len(encoding.encode(text))
-
 
 def call_groq_api_with_retry(prompt: str, retries=3):
     for i in range(retries):
@@ -100,20 +113,9 @@ def call_groq_api_with_retry(prompt: str, retries=3):
     return "Sorry, something went wrong.", 0, 0, "", 0.0
 
 def is_toxic(text: str) -> tuple[bool, float]:
-    # # Dummy check — replace with real model
-    # return "badword" in text.lower()
-
-
-   
-   
     scores = model.predict(text)
-    print("Detoxify scores:", scores)
-    print("\ntype of detoxify scores:\n", type(scores))
-
-
     toxicity_flag = bool(scores["toxicity"] > 0.7 or scores["insult"] > 0.7 or scores["threat"] > 0.6)
     toxicity_score = float(scores["toxicity"])
 
-    # You can tune these thresholds based on your needs
     return toxicity_flag, toxicity_score
 
