@@ -43,15 +43,6 @@ docker compose down # to remove volumes add --volumes
 
 Visit `http://localhost:3000` and login using `admin` and `admin`
 
-- Add promtheus as data source
-  - URL = `http://prometheus:9090`
-  - Leave auth disabled
-  - Save
-- Add tempo as data source
-  - URL = `http://tempo:3200`
-  - Leave auth disabled
-  - Save
-
 ### Trigger metrics (testing)
 
 Open terminal
