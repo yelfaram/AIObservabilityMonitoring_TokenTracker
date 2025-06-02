@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from prometheus_client import make_asgi_app
 from app.observability import metrics
@@ -15,12 +16,21 @@ model = Detoxify("original")        # create detoxify model
 app = FastAPI(debug=False)          # Create app
 tracer = trace.get_tracer(__name__) # Create trace
 
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Or ["http://localhost:3000"] for more control
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Add prometheus asgi middleware to route /metrics requests
 metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
 
 class ChatRequest(BaseModel):
-    user_input: str
+    prompt: str
 
 class FeedbackRequest(BaseModel):
     user_input: str
@@ -36,7 +46,7 @@ async def feedback(data: FeedbackRequest):
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
-    user_message = request.user_input
+    user_message = request.prompt
 
     with tracer.start_as_current_span("handle /chat") as parent_span:
         start_time = time.time()
@@ -67,13 +77,13 @@ async def chat(request: ChatRequest):
                 "prompt_tokens": prompt_tokens,
                 "response_tokens": completion_tokens,
                 "total_tokens": token_total
-            }
-        },
-        "model": model_name,
-        "trace_id": formatted_trace_id,
-        "toxicity_score": toxic_score,
-        "flagged_toxic": toxic_flag,
-        "total_time": total_time,
+            },
+            "model": model_name,
+            "trace_id": formatted_trace_id,
+            "toxicity_score": toxic_score,
+            "flagged_toxic": toxic_flag,
+            "total_time": total_time,
+        }
     }
 
 

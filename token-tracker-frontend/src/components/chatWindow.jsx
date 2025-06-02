@@ -1,13 +1,13 @@
-import React, { useState, useRef, useEffect } from 'react';
-import './ChatWindow.css';
+import React, { useState, useRef, useEffect } from "react";
+import "./ChatWindow.css";
 
-const ChatWindow = ({ setMetadata }) => {
+const ChatWindow = ({ setMetadata, setBotResponse }) => {
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const chatRef = useRef();
 
   const scrollToBottom = () => {
-    chatRef.current?.scrollIntoView({ behavior: 'smooth' });
+    chatRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   useEffect(() => {
@@ -15,38 +15,36 @@ const ChatWindow = ({ setMetadata }) => {
   }, [messages]);
 
   const handleSend = async () => {
-  if (!input.trim()) return;
+    if (!input.trim()) return;
 
-  const userMsg = { role: 'user', content: input };
-  const newMessages = [...messages, userMsg];
-  setMessages(newMessages);
-  setInput('');
+    const userMsg = { role: "user", content: input };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
+    setInput("");
 
-  try {
-    const res = await fetch('http://localhost:8000/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: input })
-    });
+    try {
+      const res = await fetch("http://localhost:8000/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: input }),
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    // 👇 Add the bot response to the chat window
-    const botMsg = { role: 'bot', content: data.response };
-    setMessages(prev => [...prev, botMsg]);
+      // 👇 Add the bot response to the chat window
+      const botMsg = { role: "bot", content: data.response };
+      setMessages((prev) => [...prev, botMsg]);
 
-    // 👇 Update observability metadata
-    setBotResponse(data.response);
-    setMetadata(data.meta);
-
-  } catch (err) {
-    console.error('Error fetching response:', err);
-  }
-};
-
+      // 👇 Update observability metadata
+      setBotResponse(data.response);
+      setMetadata(data.meta);
+    } catch (err) {
+      console.error("Error fetching response:", err);
+    }
+  };
 
   const handleKeyPress = (e) => {
-    if (e.key === 'Enter') handleSend();
+    if (e.key === "Enter") handleSend();
   };
 
   return (
@@ -58,9 +56,12 @@ const ChatWindow = ({ setMetadata }) => {
           {messages.map((msg, idx) => (
             <div
               key={idx}
-              className={`chat-message ${msg.role === 'bot' ? 'bot' : 'user'}`}
+              className={`chat-message ${msg.role === "bot" ? "bot" : "user"}`}
             >
-              <span className="label">{msg.role === 'user' ? 'You' : 'Bot'}:</span> {msg.content}
+              <span className="label">
+                {msg.role === "user" ? "You" : "Bot"}:
+              </span>{" "}
+              {msg.content}
             </div>
           ))}
           <div ref={chatRef} />
